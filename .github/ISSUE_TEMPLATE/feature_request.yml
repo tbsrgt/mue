@@ -1,0 +1,15 @@
+name: Feature request
+description: A COBOL construct, a report format, an integration…
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you need, and why
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example
+      description: A minimal COBOL snippet if relevant (fictional names and values only).

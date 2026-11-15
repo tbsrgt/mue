@@ -1,0 +1,28 @@
+name: COBOL semantics
+description: Mue computes something differently from a real COBOL compiler
+labels: [semantics]
+body:
+  - type: textarea
+    id: program
+    attributes:
+      label: Minimal program
+      description: Fixed or free format. Fictional names and values only.
+      render: cobol
+    validations:
+      required: true
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Input values
+      render: json
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result and its source
+      description: Compiler and options (e.g. IBM Enterprise COBOL 6.4, ARITH(EXTEND), TRUNC(STD)), or GnuCOBOL version.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What Mue reports

@@ -1,0 +1,54 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALCINT.
+       AUTHOR. SAVINGS TEAM.
+       DATE-WRITTEN. 14/03/1998.
+      *----------------------------------------------------------------
+      * SAVINGS INTEREST CALCULATION FOR ONE ACCOUNT
+      * CALLED BY THE NIGHTLY BATCH NIGHTINT FOR EACH ACCOUNT.
+      * CHANGE 2004 : 0.01 MINIMUM INTEREST FLOOR REMOVED
+      * MUE EXAMPLE - FICTIONAL SYSTEM
+      *----------------------------------------------------------------
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+      *    ANNUAL BASIS : 365 DAYS X 100 (RATE AS A PERCENTAGE)
+       77  WS-ANNUAL-BASIS         PIC 9(5)      VALUE 36500.
+       LINKAGE SECTION.
+           COPY ACCTREC.
+       01  LK-CALC-AREA.
+      *    NUMBER OF DAYS IN THE PERIOD
+           05  LK-DAYS             PIC 9(3).
+      *    COMPUTED INTEREST (OUTPUT)
+           05  LK-INTEREST         PIC S9(9)V99  COMP-3.
+           05  LK-RETURN-CODE      PIC X(2).
+       PROCEDURE DIVISION USING ACCT-REC LK-CALC-AREA.
+       0000-MAIN.
+           MOVE '00' TO LK-RETURN-CODE
+           PERFORM 1000-CHECKS
+           IF LK-RETURN-CODE = '00'
+              PERFORM 2000-COMPUTE-INTEREST
+           END-IF
+           GOBACK.
+      *
+       1000-CHECKS.
+      *    EMPTY PERIOD OR LONGER THAN ONE YEAR : REJECTED
+           IF LK-DAYS = ZERO OR LK-DAYS > 366
+              MOVE 'D1' TO LK-RETURN-CODE
+              MOVE ZERO TO LK-INTEREST
+           END-IF.
+      *
+       2000-COMPUTE-INTEREST.
+      *    NO INTEREST ON A BLOCKED ACCOUNT OR A NEGATIVE BALANCE
+           IF ACCT-STATUS = 'B'
+              OR ACCT-BALANCE NOT > ZERO
+              MOVE ZERO TO LK-INTEREST
+           ELSE
+              COMPUTE LK-INTEREST ROUNDED =
+                 ACCT-BALANCE * ACCT-RATE * LK-DAYS
+                 / WS-ANNUAL-BASIS
+           END-IF.
+      *
+      * OLD 360-DAY CALCULATION (BEFORE 1999) - NO LONGER CALLED
+       9000-OLD-CALC-360.
+           COMPUTE LK-INTEREST ROUNDED =
+              ACCT-BALANCE * ACCT-RATE * LK-DAYS / 36000.

@@ -1,0 +1,57 @@
+{
+  "name": "mue-cobol",
+  "version": "0.1.0",
+  "description": "Give it your COBOL. It explains it, rewrites it in Java, and proves both produce identical results.",
+  "license": "AGPL-3.0-only",
+  "keywords": ["cobol", "java", "mainframe", "modernization", "migration", "transpiler", "equivalence", "bigdecimal", "differential-testing"],
+  "type": "module",
+  "bin": {
+    "mue": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "examples", "LICENSE", "README.md"],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "mue": "tsx cli/mue.ts",
+    "dev": "next dev -p 3000",
+    "studio": "next dev -p 3000",
+    "build": "npm run build:lib && next build",
+    "build:lib": "node scripts/build-lib.mjs && tsc -p tsconfig.lib.json",
+    "start": "next start -p 3000",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "seed": "tsx scripts/seed.ts",
+    "demo:gif": "node scripts/demo-gif.mjs"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  },
+  "devDependencies": {
+    "@dagrejs/dagre": "^3.1.3",
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@xyflow/react": "^12.12.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.6",
+    "next": "16.4.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
+  }
+}

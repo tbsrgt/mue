@@ -1,0 +1,22 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Commands, minimal COBOL sources (fictional names and values only, never production code or customer data).
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Mue version and Node.js version
+      placeholder: "mue 0.1.0, node 22.13"
