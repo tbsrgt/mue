@@ -27,6 +27,7 @@ export function buildData(prog: CobolProgram, written: Set<string>) {
   const groups: JGroup[] = [];
   const fields = new Map<string, JField>();
   const usedTop = new Set<string>(["sqlcode"]);
+  const usedConst = new Set<string>(["MC"]);
   const usedCls = new Set<string>([programClassName(prog.id, prog.title)]);
 
   const initOf = (it: DataItem): string => {
@@ -34,8 +35,9 @@ export function buildData(prog: CobolProgram, written: Set<string>) {
       if (it.value?.kind === "num") return numLiteral(it.value.value);
       return "BigDecimal.ZERO";
     }
-    if (it.value?.kind === "str") return JSON.stringify(it.value.value.replace(/\s+$/, ""));
-    if (it.value?.kind === "fig" && it.value.value === "ZERO") return JSON.stringify("0".repeat(it.pic?.length ?? 1));
+    const len = it.pic?.length ?? 1;
+    if (it.value?.kind === "str") return JSON.stringify(it.value.value.slice(0, len).replace(/\s+$/, ""));
+    if (it.value?.kind === "fig" && it.value.value === "ZERO") return JSON.stringify("0".repeat(len));
     return '""';
   };
 
@@ -46,8 +48,8 @@ export function buildData(prog: CobolProgram, written: Set<string>) {
     }
     if (root.children.length === 0) {
       if (root.name === "FILLER") continue;
-      const constant = root.section === "WORKING-STORAGE" && !!root.value && !written.has(root.name) && root.pic?.kind === "numeric";
-      const name = constant ? constName(root.name) : uniq(fieldName(root.name), usedTop);
+      const constant = root.section === "WORKING-STORAGE" && !!root.value && !written.has(root.name) && root.pic?.kind === "numeric" && !root.occurs;
+      const name = constant ? uniq(constName(root.name), usedConst) : uniq(fieldName(root.name), usedTop);
       fields.set(root.name, {
         cobol: root.name,
         name,
@@ -68,6 +70,7 @@ export function buildData(prog: CobolProgram, written: Set<string>) {
     const els = elementaryOf(prog, root.name).filter((e) => e.name !== "FILLER");
     const prefix = commonPrefix(els.map((e) => e.name));
     const used = new Set<string>();
+    const usedMethods = new Set<string>();
     const g: JGroup = {
       cobol: root.name,
       cls,
@@ -98,13 +101,19 @@ export function buildData(prog: CobolProgram, written: Set<string>) {
       g.fields.push(f);
       fields.set(el.name, f);
       for (const c of el.conditions) {
-        const m = "is" + capFirst(fieldName(c.name, prefix));
-        g.conditions.push({ name: c.name, method: m, field: el.name, values: c.values.map((v) => ({ v: v.kind === "fig" ? (v.value === "ZERO" ? "0" : "") : v.value, num: el.pic?.kind === "numeric" })) });
+        const m = uniq("is" + capFirst(fieldName(c.name, prefix)), usedMethods);
+        const num = el.pic?.kind === "numeric";
+        g.conditions.push({ name: c.name, method: m, field: el.name, values: c.values.map((v) => ({ v: litText(v), num })), ranges: c.ranges.map(([lo, hi]) => ({ lo: litText(lo), hi: litText(hi), num })) });
       }
     }
     groups.push(g);
   }
   return { groups, fields };
+}
+
+/** Text of a level-88 value, as the Java condition methods compare it. */
+export function litText(v: { kind: string; value: string }): string {
+  return v.kind === "fig" ? (v.value === "ZERO" ? "0" : "") : v.value;
 }
 
 export function numLiteral(v: string): string {
@@ -180,7 +189,8 @@ export function transpile(prog: CobolProgram, ctx: TranspileContext): JProgram {
   const decisions: Decision[] = [];
   const todos: JProgram["todos"] = [];
   const { reachable } = reachability(prog);
-  const usedMethods = new Set<string>(["run"]);
+  // run() is the entry point; the others are final or typed methods of java.lang.Object.
+  const usedMethods = new Set<string>(["run", "getClass", "hashCode", "equals", "toString", "notify", "notifyAll", "wait", "clone", "finalize"]);
   const methodOf = new Map<string, string>();
   prog.paragraphs.forEach((p) => methodOf.set(p.name, uniq(methodName(p.name), usedMethods)));
   const clsName = programClassName(prog.id, prog.title);
@@ -194,8 +204,8 @@ export function transpile(prog: CobolProgram, ctx: TranspileContext): JProgram {
     const def = parent?.conditions.find((c) => c.name === name);
     if (!parent || !def) return null;
     const num = parent.pic?.kind === "numeric";
-    const values = def.values.map((v) => ({ v: v.kind === "fig" ? (v.value === "ZERO" ? "0" : "") : v.value, num }));
-    const ranges = def.ranges.map(([lo, hi]) => ({ lo: lo.kind === "fig" ? "0" : lo.value, hi: hi.kind === "fig" ? "0" : hi.value, num }));
+    const values = def.values.map((v) => ({ v: litText(v), num }));
+    const ranges = def.ranges.map(([lo, hi]) => ({ lo: litText(lo), hi: litText(hi), num }));
     const jf = fields.get(parent.name);
     const g = groups.find((x) => x.conditions.some((c) => c.name === name));
     const call = g ? `${g.varName}.${g.conditions.find((c) => c.name === name)!.method}()` : `is${capFirst(conditionMethod(name))}()`;

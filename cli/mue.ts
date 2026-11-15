@@ -38,7 +38,8 @@ Conversion options (convert and verify):
       --package NAME            Java package (default: com.example.bank)
       --fix PROGRAM=MODE        Per-program rounding override, e.g. --fix CALCINT=HALF_UP (repeatable)
 
-Exit codes: 0 success, 1 mismatches found (or skipped programs with --strict), 2 usage error.
+Exit codes: 0 success, 1 mismatches found (or skipped programs with --strict), 2 usage error,
+            3 internal error.
 `;
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -62,6 +63,7 @@ function main(argv: string[]): Promise<number> | number {
     process.stdout.write(`${VERSION}\n`);
     return 0;
   }
+  if (!["analyze", "convert", "verify"].includes(command)) throw new UsageError(`Unknown command "${command}". Run mue --help.`);
   const { values, positionals } = parseArgs({
     args: rest,
     allowPositionals: true,
@@ -93,17 +95,21 @@ function main(argv: string[]): Promise<number> | number {
       return runAnalyze(system, values.format ?? "md", values.out);
     case "convert":
       return runConvert(system, conv, values.out ?? "java", values.program);
-    case "verify":
+    case "verify": {
+      const formats = (values.format ?? "md,html,json").split(",").map((s) => s.trim().toLowerCase());
+      const unknown = formats.filter((f) => !["md", "html", "json"].includes(f));
+      if (unknown.length) throw new UsageError(`--format expects a comma-separated list of md, html, json (got "${unknown.join(", ")}")`);
       return runVerify(system, conv, {
         cases: values.cases !== undefined ? positiveInt(values.cases, "--cases") : undefined,
         seed: values.seed !== undefined ? positiveInt(values.seed, "--seed") : undefined,
         programs: values.program,
         inputs: values.inputs,
         reportDir: values["report-dir"] ?? "mue-report",
-        formats: (values.format ?? "md,html,json").split(",").map((s) => s.trim().toLowerCase()),
+        formats,
         strict: !!values.strict,
         quiet: !!values.quiet,
       });
+    }
     default:
       throw new UsageError(`Unknown command "${command}". Run mue --help.`);
   }

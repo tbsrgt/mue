@@ -46,7 +46,7 @@ export interface JGroup {
   varName: string;
   copybook?: string;
   fields: JField[];
-  conditions: { name: string; method: string; field: string; values: { v: string; num: boolean }[] }[];
+  conditions: { name: string; method: string; field: string; values: { v: string; num: boolean }[]; ranges: { lo: string; hi: string; num: boolean }[] }[];
   isParam: boolean;
   section: string;
   comment?: string;

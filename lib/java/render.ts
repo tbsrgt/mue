@@ -3,10 +3,10 @@
  * Renders readable Java from the IR, with a COBOL ↔ Java line mapping.
  */
 import type { CobolProgram, Pic, RelOp, SqlInfo } from "../cobol/types";
-import { sentence } from "../text";
+import { sentence as toSentence } from "../text";
 import type { JCond, JExpr, JField, JGroup, JProgram, JStmt, NumTarget } from "./ir";
-import { conditionMethod, constName, uniq } from "./naming";
-import { numLiteral } from "./transpile";
+import { conditionMethod, constName } from "./naming";
+import { litText, numLiteral } from "./transpile";
 
 export interface JavaFile {
   name: string;
@@ -35,6 +35,18 @@ export interface RenderOptions {
 }
 
 const IND = "    ";
+
+/**
+ * Text safe inside a Java comment: "*\/" would close a block comment, and javac decodes
+ * backslash-u escapes even in comments, so a stray one in a COBOL comment would not compile.
+ */
+function safeComment(text: string): string {
+  return text.replace(/\*\//g, "* /").replace(/\\u/g, "\\ u").replace(/[\r\n]+/g, " ");
+}
+
+function commentText(text: string): string {
+  return safeComment(toSentence(text));
+}
 
 class Writer {
   lines: string[] = [];
@@ -94,7 +106,9 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         }
         if (e.op === "pow") {
           usesMc = true;
-          const exp = e.b.k === "num" ? e.b.v : `${num(e.b)}.intValueExact()`;
+          // A literal integer exponent is written as is; anything else goes through intValueExact(),
+          // which throws on a fractional exponent exactly like the Java model does.
+          const exp = e.b.k === "num" && /^[+-]?\d+$/.test(e.b.v) ? String(Number(e.b.v)) : `${num(e.b)}.intValueExact()`;
           return `${a}.pow(${exp}, MC)`;
         }
         return `${a}.${OPS[e.op]}(${num(e.b)})`;
@@ -201,18 +215,38 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
   // ---------- statements ----------
   const w = new Writer();
   let localCounter = new Map<string, number>();
+  // Names a local variable must not take: it would shadow a field read in the same method
+  // (BigDecimal value = value.add(...) does not compile).
+  const taken = new Set<string>(["sql", "external", "sqlcode", "MC"]);
+  for (const f of jp.fields.values()) taken.add(f.name);
+  for (const g of jp.groups) taken.add(g.varName);
   const local = (base: string) => {
-    const n = (localCounter.get(base) ?? 0) + 1;
-    localCounter.set(base, n);
-    return n === 1 ? base : base + n;
+    for (;;) {
+      const n = (localCounter.get(base) ?? 0) + 1;
+      localCounter.set(base, n);
+      const name = n === 1 ? base : base + n;
+      if (!taken.has(name)) return name;
+    }
+  };
+
+  /** Emits a block; statements after a GOBACK / STOP RUN are unreachable and would not compile. */
+  const emitAll = (stmts: JStmt[] | undefined) => {
+    const list = stmts ?? [];
+    for (let i = 0; i < list.length; i++) {
+      emit(list[i]);
+      if (list[i].k === "exit" && i < list.length - 1) {
+        w.line(unreachableNote(list.length - 1 - i, list[i]));
+        return;
+      }
+    }
   };
 
   const emitComment = (s: JStmt) => {
     if (commented.has(s.o.id)) return;
     commented.add(s.o.id);
     const rule = opts.rules?.get(s.o.id);
-    if (rule) w.line(`// ${rule}`);
-    else if (s.o.comment) w.line(`// ${sentence(s.o.comment)}`);
+    if (rule) w.line(`// ${safeComment(rule)}`);
+    else if (s.o.comment) w.line(`// ${commentText(s.o.comment)}`);
   };
 
   const numRhs = (t: NumTarget, code?: string): { text: string; trailing?: string } => {
@@ -236,6 +270,11 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
     const lhs = t.f === "SQLCODE" ? "sqlcode" : path({ k: "field", f: t.f, sub: t.sub });
     if (t.f === "SQLCODE") {
       w.line(`sqlcode = ${code ?? num(t.e)}.intValue();`);
+      return;
+    }
+    if (f?.occurs && !t.sub) {
+      // INITIALIZE of a whole table: every element.
+      w.line(`java.util.Arrays.fill(${lhs}, ${numRhs(t, code).text});`);
       return;
     }
     const { text, trailing } = numRhs(t, code);
@@ -334,11 +373,11 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
           }
           w.line(`if (${flag}) {   // ON SIZE ERROR`);
           w.ind++;
-          (s.sizeError.on ?? []).forEach((x) => emit(x));
+          emitAll(s.sizeError.on ?? []);
           w.ind--;
           w.line("} else {");
           w.ind++;
-          (s.sizeError.not ?? []).forEach((x) => emit(x));
+          emitAll(s.sizeError.not ?? []);
           w.ind--;
           w.line("}");
         } else if (s.sizeError) {
@@ -350,12 +389,12 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
           w.line(`BigDecimal ${cand} = ${num(t.e)};`);
           w.line(`if (Pic.overflows(${cand}, ${pc}, RoundingMode.${mode})) {   // ON SIZE ERROR`);
           w.ind++;
-          (s.sizeError.on ?? []).forEach((x) => emit(x));
+          emitAll(s.sizeError.on ?? []);
           w.ind--;
           w.line("} else {");
           w.ind++;
           w.line(`${path({ k: "field", f: t.f, sub: t.sub })} = Pic.store(${cand}, ${pc}, RoundingMode.${mode});`);
-          (s.sizeError.not ?? []).forEach((x) => emit(x));
+          emitAll(s.sizeError.not ?? []);
           w.ind--;
           w.line("}");
         } else {
@@ -383,19 +422,32 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         const f = fieldOf(s.f);
         const rhs = str(s.e);
         const lhs = path({ k: "field", f: s.f, sub: s.sub });
-        const trunc = s.e.k === "field" && fieldOf(s.e.f) && (fieldOf(s.e.f)!.length > (f?.length ?? 1)) ? `Pic.truncate(${rhs}, ${f?.length})` : rhs;
-        w.line(`${lhs} = ${trunc};${s.note ? `   // ${s.note}` : ""}`);
+        const len = f?.length ?? 1;
+        // Values longer than the target are cut on the right, like the COBOL MOVE (and the Java model).
+        let value = rhs;
+        if (s.e.k === "str") {
+          if (s.e.v.length > len) value = JSON.stringify(s.e.v.slice(0, len).replace(/\s+$/, ""));
+        } else if (s.e.k === "fill") {
+          if (s.e.len > len) value = JSON.stringify(s.e.ch.repeat(len));
+        } else if (s.e.k === "field") {
+          if ((fieldOf(s.e.f)?.length ?? 0) > len) value = `Pic.truncate(${rhs}, ${len})`;
+        } else if (s.e.k === "digits") {
+          const width = s.e.pic ? s.e.pic.intDigits + s.e.pic.scale : Infinity;
+          if (width > len) value = `Pic.truncate(${rhs}, ${len})`;
+        } else value = `Pic.truncate(${rhs}, ${len})`;
+        if (f?.occurs && !s.sub) w.line(`java.util.Arrays.fill(${lhs}, ${value});${s.note ? `   // ${s.note}` : ""}`);
+        else w.line(`${lhs} = ${value};${s.note ? `   // ${s.note}` : ""}`);
         break;
       }
       case "if":
         emitCond("if (", cond(s.c), ") {");
         w.ind++;
-        s.then.forEach((x) => emit(x));
+        emitAll(s.then);
         w.ind--;
         if (s.else && s.else.length) {
           w.line("} else {");
           w.ind++;
-          s.else.forEach((x) => emit(x));
+          emitAll(s.else);
           w.ind--;
         }
         w.line("}");
@@ -403,16 +455,22 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
       case "switchStr":
         w.line(`switch (${str(s.subject)}) {`);
         w.ind++;
+        const seenLabels = new Set<string>();
         for (const c of s.cases) {
-          w.line(`case ${c.values.map((v) => JSON.stringify(v)).join(", ")} -> {`);
+          // A value already matched by an earlier WHEN can never reach this one (and Java rejects
+          // duplicate labels).
+          const labels = c.values.filter((v) => !seenLabels.has(v));
+          labels.forEach((v) => seenLabels.add(v));
+          if (!labels.length) continue;
+          w.line(`case ${labels.map((v) => JSON.stringify(v)).join(", ")} -> {`);
           w.ind++;
-          c.body.forEach((x) => emit(x));
+          emitAll(c.body);
           w.ind--;
           w.line("}");
         }
         w.line("default -> {");
         w.ind++;
-        (s.other ?? []).forEach((x) => emit(x));
+        emitAll(s.other ?? []);
         w.ind--;
         w.line("}");
         w.ind--;
@@ -422,13 +480,13 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         s.cases.forEach((c, i) => {
           emitCond(i === 0 ? "if (" : "} else if (", cond(c.c), ") {");
           w.ind++;
-          c.body.forEach((x) => emit(x));
+          emitAll(c.body);
           w.ind--;
         });
         if (s.other && s.other.length) {
           w.line("} else {");
           w.ind++;
-          s.other.forEach((x) => emit(x));
+          emitAll(s.other);
           w.ind--;
         }
         w.line("}");
@@ -437,28 +495,30 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         s.methods.forEach((m) => w.line(`${m}();`));
         break;
       case "block":
-        s.body.forEach((x) => emit(x));
+        emitAll(s.body);
         break;
       case "while":
         if (s.doWhile) {
           w.line("do {");
           w.ind++;
-          s.body.forEach((x) => emit(x));
+          emitAll(s.body);
           w.ind--;
           emitCond("} while (", cond(s.c), ");");
         } else {
           emitCond("while (", cond(s.c), ") {");
           w.ind++;
-          s.body.forEach((x) => emit(x));
+          emitAll(s.body);
           w.ind--;
           w.line("}");
         }
         break;
       case "repeat": {
+        // intValue() truncates the fraction, like the COBOL count does.
         const i = local("i");
-        w.line(`for (int ${i} = 0, n = ${num(s.n)}.intValueExact(); ${i} < n; ${i}++) {`);
+        const n = local("times");
+        w.line(`for (int ${i} = 0, ${n} = ${num(s.n)}.intValue(); ${i} < ${n}; ${i}++) {`);
         w.ind++;
-        s.body.forEach((x) => emit(x));
+        emitAll(s.body);
         w.ind--;
         w.line("}");
         break;
@@ -467,10 +527,12 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         emit(s.init);
         emitCond("while (", cond(s.c), ") {");
         w.ind++;
-        s.body.forEach((x) => emit(x));
+        emitAll(s.body);
         const stepTarget = (s.step as JStmt & { k: "setNum" }).targets[0];
         const f = fieldOf(stepTarget.f);
-        if (f?.pic && stepTarget.fit) {
+        if (s.body.some((x) => x.k === "exit")) {
+          // The body always leaves the program: the step would be unreachable.
+        } else if (f?.pic && stepTarget.fit) {
           const max = "9".repeat(f.pic.intDigits);
           w.line(`${f.path} = Pic.store(${num(stepTarget.e)}, ${picConst(stepTarget.f)});   // PIC ${f.pic.raw}: wraps to 0 after ${max}`);
         } else emit(s.step);
@@ -494,13 +556,14 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
           if (a.literal) return str(a.literal);
           const cg = jp.groups.find((g) => g.cobol === a.cobol);
           const pg = callee?.groups.find((g) => g.cobol === a.param);
-          if (cg && pg && cg.copybook && cg.copybook === pg.copybook) return cg.varName;
+          // Same record class: pass the object itself BY REFERENCE, a copy otherwise (BY CONTENT).
+          if (cg && pg && cg.copybook && cg.copybook === pg.copybook && a.mode === "REFERENCE") return cg.varName;
           if (cg && pg) {
             const v = local(pg.varName + "Arg");
             w.line(`${pg.qualified} ${v} = new ${pg.qualified}();`);
             pg.fields.forEach((pf, k) => {
               const cf = cg.fields[k];
-              if (cf) w.line(`${v}.${pf.name} = ${cf.path};`);
+              if (cf) w.line(`${v}.${pf.name} = ${cf.path}${pf.occurs && a.mode !== "REFERENCE" ? ".clone()" : ""};`);
             });
             if (a.mode === "REFERENCE")
               pg.fields.forEach((pf, k) => {
@@ -540,7 +603,7 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         const sql = s.sql;
         const { text, params } = sqlText(sql);
         const shortCobol = sql.text.replace(/\s+/g, " ").slice(0, 80);
-        w.line(`// EXEC SQL ${shortCobol}${sql.text.length > 80 ? "…" : ""}`);
+        w.line(safeComment(`// EXEC SQL ${shortCobol}${sql.text.length > 80 ? "…" : ""}`));
         if (sql.op === "SELECT") {
           const l = local("row");
           w.line(`Row ${l} = sql.select(`);
@@ -586,8 +649,9 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
         break;
       }
       case "todo":
-        w.line(`// TODO MIGRATE BY HAND (COBOL line ${s.o.line}): ${s.text}`);
-        if (s.blocking) w.line(`throw new UnsupportedOperationException(${JSON.stringify(`${s.construct}, line ${s.o.line}`)});`);
+        w.line(safeComment(`// TODO MIGRATE BY HAND (COBOL line ${s.o.line}): ${s.text}`));
+        // A method call rather than a throw statement: the code after it stays reachable and compiles.
+        if (s.blocking) w.line(`Pic.notConverted(${JSON.stringify(`${s.construct}, line ${s.o.line}`)});`);
         break;
       case "noop":
         if (s.text === "CONTINUE") w.line("// CONTINUE");
@@ -599,6 +663,19 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
   // ---------- method bodies ----------
   w.ind = 1;
   const lastEntry = jp.entry[jp.entry.length - 1];
+  // A final GOBACK can be left as a comment only when nothing PERFORMs its paragraph: reached
+  // through a PERFORM, it must still end the program instead of returning to the caller.
+  const performed = new Set<string>();
+  const collectPerforms = (stmts: JStmt[]) => {
+    for (const s of stmts) {
+      if (s.k === "perform") s.methods.forEach((m) => performed.add(m));
+      if (s.k === "if") [s.then, s.else ?? []].forEach(collectPerforms);
+      if (s.k === "switchStr" || s.k === "chain") [...s.cases.map((c) => c.body), s.other ?? []].forEach(collectPerforms);
+      if (s.k === "block" || s.k === "while" || s.k === "repeat" || s.k === "varying") collectPerforms(s.body);
+      if (s.k === "setNum" && s.sizeError) [s.sizeError.on ?? [], s.sizeError.not ?? []].forEach(collectPerforms);
+    }
+  };
+  jp.paragraphs.forEach((p) => collectPerforms(p.body));
   const paramGroups = jp.params.map((p) => jp.groups.find((g) => g.cobol === p) ?? null);
   // run()
   const execStart = w.n;
@@ -624,12 +701,15 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
     w.line("");
     if (p.dead) {
       w.line(`// ${p.cobol} (COBOL line ${p.line}): never called, not converted (dead code).`);
-      if (p.comment) w.line(`// ${sentence(p.comment)}`);
+      if (p.comment) w.line(`// ${commentText(p.comment)}`);
     } else {
-      w.line(`/** ${p.cobol}${p.comment ? " — " + sentence(p.comment) : ""} */`);
+      w.line(`/** ${p.cobol}${p.comment ? " — " + commentText(p.comment) : ""} */`);
       w.line(`private void ${p.method}() {`);
       w.ind++;
-      p.body.forEach((s, i) => emit(s, p.method === lastEntry && i === p.body.length - 1 && s.k === "exit"));
+      const exitAt = p.body.findIndex((s) => s.k === "exit");
+      const body = exitAt >= 0 ? p.body.slice(0, exitAt + 1) : p.body;
+      body.forEach((s, i) => emit(s, p.method === lastEntry && !performed.has(p.method) && i === body.length - 1 && s.k === "exit"));
+      if (body.length < p.body.length) w.line(unreachableNote(p.body.length - body.length, p.body[exitAt]));
       w.ind--;
       w.line("}");
     }
@@ -642,9 +722,9 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
 
   // ---------- class header ----------
   const h = new Writer();
-  const title = prog.title ? sentence(prog.title) : jp.className;
+  const title = prog.title ? commentText(prog.title) : jp.className;
   h.line(`// ${jp.className}.java`);
-  h.line(`// Converted by Mue from ${prog.file}${prog.author ? ` (original author: ${prog.author}${prog.dateWritten ? ", " + prog.dateWritten : ""})` : ""}.`);
+  h.line(safeComment(`// Converted by Mue from ${prog.file}${prog.author ? ` (original author: ${prog.author}${prog.dateWritten ? ", " + prog.dateWritten : ""})` : ""}.`));
   h.line("// Do not edit without re-running the equivalence check.");
   h.line(`package ${jp.conventions.package};`);
   h.line("");
@@ -661,7 +741,7 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
   h.line("");
   h.line("/**");
   h.line(` * ${title}.`);
-  if (opts.summary) for (const l of wrap(opts.summary, 90)) h.line(` * ${l}`);
+  if (opts.summary) for (const l of wrap(safeComment(opts.summary), 90)) h.line(` * ${l}`);
   h.line(` * <p>Original COBOL program: ${prog.id}.</p>`);
   h.line(" */");
   h.line(`public class ${jp.className} {`);
@@ -675,7 +755,7 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
   const consts = [...jp.fields.values()].filter((f) => f.constant);
   if (consts.length) h.line("");
   for (const f of consts) {
-    if (f.comment) h.line(`/** ${sentence(f.comment)} */`);
+    if (f.comment) h.line(`/** ${commentText(f.comment)} */`);
     h.line(`private static final BigDecimal ${f.name} = ${f.init};   // ${f.cobol} PIC ${f.pic?.raw}`);
   }
   if (picConsts.size) {
@@ -694,7 +774,7 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
   h.line("");
   const tops = [...jp.fields.values()].filter((f) => !f.owner && !f.constant && f.cobol !== "SQLCODE");
   for (const f of tops) {
-    if (f.comment) h.line(`/** ${sentence(f.comment)} */`);
+    if (f.comment) h.line(`/** ${commentText(f.comment)} */`);
     const type = f.isNum ? "BigDecimal" : "String";
     const init = f.occurs ? (f.isNum ? `Pic.zeros(${f.occurs})` : `Pic.blanks(${f.occurs})`) : f.init;
     h.line(`private ${type}${f.occurs ? "[]" : ""} ${f.name} = ${init};   // ${f.cobol}${f.pic ? " PIC " + f.pic.raw : ""}`);
@@ -718,12 +798,17 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
     if (!f) continue;
     for (const c of it.conditions) {
       const m = `is${capFirst(conditionMethod(c.name))}`;
-      const vals = c.values.map((v) => (v.kind === "str" ? JSON.stringify(v.value) : v.kind === "num" ? `new BigDecimal("${v.value}")` : '""'));
+      const test = conditionTest(
+        f.path,
+        f.isNum,
+        c.values.map((v) => litText(v)),
+        c.ranges.map(([lo, hi]) => ({ lo: litText(lo), hi: litText(hi) })),
+      );
       h.line("");
       h.line(`/** Condition ${c.name}. */`);
       h.line(`private boolean ${m}() {`);
       h.ind++;
-      h.line(`return ${vals.map((v) => (f.isNum ? `${f.path}.compareTo(${v}) == 0` : `${f.path}.equals(${v})`)).join(" || ") || "false"};`);
+      h.line(`return ${test};`);
       h.ind--;
       h.line("}");
     }
@@ -776,12 +861,17 @@ export function renderJava(jp: JProgram, prog: CobolProgram, others: Map<string,
     r.line(`package ${jp.conventions.package};`);
     r.line("");
     r.line("import java.math.BigDecimal;");
+    if (g.fields.some((f) => f.occurs)) r.line("import mue.runtime.Pic;");
     r.line("");
     renderGroupClass(r, g, false);
     files.push({ name: `${g.cls}.java`, content: r.lines.join("\n") + "\n", kind: "record" });
   }
   files.push(...runtimeFiles({ sql: usesSql, external: usesExternal, exit: usesExit, env: usesEnv }));
   return { files, mapping: finalMap };
+}
+
+function unreachableNote(count: number, exit: JStmt): string {
+  return `// (${count} unreachable statement${count > 1 ? "s" : ""} after ${(exit as JStmt & { k: "exit" }).how} not converted)`;
 }
 
 /** Fields read by an IR expression. */
@@ -807,19 +897,33 @@ function fieldRefs(e: JExpr, out: string[] = []): string[] {
   return out;
 }
 
+/** Numeric literal of a level-88 value, read like the Java model does (anything else is zero). */
+function numericValue(v: string): string {
+  const t = v.trim();
+  return /^[+-]?\d+(\.\d+)?$/.test(t) ? numLiteral(t) : "BigDecimal.ZERO";
+}
+
+/** Body of a level-88 condition method: values (equality) and THRU ranges (inclusive). */
+function conditionTest(field: string, isNum: boolean, values: string[], ranges: { lo: string; hi: string }[]): string {
+  const parts = values.map((v) => (isNum ? `${field}.compareTo(${numericValue(v)}) == 0` : `${field}.equals(${JSON.stringify(v.replace(/\s+$/, ""))})`));
+  for (const r of ranges) {
+    if (isNum) parts.push(`(${field}.compareTo(${numericValue(r.lo)}) >= 0 && ${field}.compareTo(${numericValue(r.hi)}) <= 0)`);
+    else parts.push(`(${field}.compareTo(${JSON.stringify(r.lo)}) >= 0 && ${field}.compareTo(${JSON.stringify(r.hi)}) <= 0)`);
+  }
+  return parts.join(" || ") || "false";
+}
+
 function capFirst(s: string) {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
 function renderGroupClass(w: Writer, g: JGroup, nested: boolean) {
-  if (g.comment) w.line(`/** ${sentence(g.comment)} (${g.cobol}) */`);
+  if (g.comment) w.line(`/** ${commentText(g.comment)} (${g.cobol}) */`);
   else w.line(`/** Group ${g.cobol}${g.copybook ? ` (copybook ${g.copybook})` : ""}. */`);
   w.line(`public ${nested ? "static " : ""}class ${g.cls} {`);
   w.ind++;
-  const used = new Set<string>();
   for (const f of g.fields) {
-    used.add(f.name);
-    if (f.comment) w.line(`/** ${sentence(f.comment)} */`);
+    if (f.comment) w.line(`/** ${commentText(f.comment)} */`);
     const type = f.isNum ? "BigDecimal" : "String";
     const init = f.occurs ? (f.isNum ? `Pic.zeros(${f.occurs})` : `Pic.blanks(${f.occurs})`) : f.init;
     w.line(`public ${type}${f.occurs ? "[]" : ""} ${f.name} = ${init};   // ${f.cobol}${f.pic ? " PIC " + f.pic.raw : ""}`);
@@ -827,13 +931,13 @@ function renderGroupClass(w: Writer, g: JGroup, nested: boolean) {
   for (const c of g.conditions) {
     const f = g.fields.find((x) => x.cobol === c.field);
     if (!f) continue;
-    const m = uniq(c.method, used);
-    const vals = c.values.map((v) => (v.num ? `${f.name}.compareTo(new BigDecimal("${v.v}")) == 0` : `${f.name}.equals(${JSON.stringify(v.v.replace(/\s+$/, ""))})`));
+    // Same name as the call sites (made unique per group by the transpiler).
+    const m = c.method;
     w.line("");
     w.line(`/** ${c.name} */`);
     w.line(`public boolean ${m}() {`);
     w.ind++;
-    w.line(`return ${vals.join(" || ") || "false"};`);
+    w.line(`return ${conditionTest(f.name, f.isNum, c.values.map((v) => v.v), c.ranges ?? [])};`);
     w.ind--;
     w.line("}");
   }
@@ -962,16 +1066,21 @@ public final class Pic {
     }
 
     public static boolean isNumeric(String text, int length) {
-        return String.format("%-" + length + "s", text).chars().allMatch(Character::isDigit);
+        return String.format("%-" + length + "s", text).chars().allMatch(c -> c >= '0' && c <= '9');
     }
 
     /** Intrinsic functions without a direct BigDecimal equivalent (MOD, REM). */
-    public static BigDecimal intrinsic(String name, BigDecimal a, BigDecimal b) {
+    public static BigDecimal intrinsic(String name, BigDecimal... args) {
         switch (name) {
-            case "MOD": return a.subtract(b.multiply(new BigDecimal(a.divide(b, 0, RoundingMode.FLOOR).toBigInteger())));
-            case "REM": return a.subtract(b.multiply(new BigDecimal(a.divide(b, 0, RoundingMode.DOWN).toBigInteger())));
+            case "MOD": return args[0].subtract(args[1].multiply(new BigDecimal(args[0].divide(args[1], 0, RoundingMode.FLOOR).toBigInteger())));
+            case "REM": return args[0].subtract(args[1].multiply(new BigDecimal(args[0].divide(args[1], 0, RoundingMode.DOWN).toBigInteger())));
             default: throw new UnsupportedOperationException("FUNCTION " + name);
         }
+    }
+
+    /** Marks code that Mue could not convert: fails loudly at run time, never silently. */
+    public static void notConverted(String construct) {
+        throw new UnsupportedOperationException("Not converted by Mue, migrate by hand: " + construct);
     }
 
     public static BigDecimal[] zeros(int n) {
@@ -1049,6 +1158,8 @@ const EXIT_RUNTIME = `// ProgramExit.java — Mue runtime: GOBACK / STOP RUN fro
 package mue.runtime;
 
 public final class ProgramExit extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
     public ProgramExit() {
         super(null, null, false, false);
     }

@@ -29,3 +29,36 @@ jobs:
         run: npm run build
       - name: Verify the example (CLI smoke test)
         run: node dist/cli.js verify examples/banking --report-dir mue-report
+
+  # The harness runs a TypeScript model of the generated Java. This job compiles the real
+  # generated Java with javac and replays CALCINT through it, so the model cannot drift from
+  # the code people would actually ship.
+  java:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21.0.5"
+      - run: npm ci
+      - name: Build the CLI
+        run: npm run build:lib
+      - name: Convert the example to Java
+        run: node dist/cli.js convert examples/banking --out build/java
+      - name: Compile all generated Java, including the mue.runtime library
+        run: |
+          find build/java -name '*.java' | sort > build/sources.txt
+          cat build/sources.txt
+          grep -q 'mue/runtime/Pic.java' build/sources.txt
+          javac -version
+          javac -Xlint:all -Werror -encoding UTF-8 -d build/classes @build/sources.txt scripts/java-replay/CalcintReplay.java
+      - name: Replay CALCINT through the compiled Java
+        run: |
+          npx tsx scripts/export-cases.ts examples/banking CALCINT build/calcint.tsv
+          java -cp build/classes CalcintReplay build/calcint.tsv

@@ -152,7 +152,10 @@ export class JavaMachine {
     try {
       for (const m of prog.entry) this.runMethod(prog, st, m);
     } catch (e) {
-      if (e instanceof FinProgramme) return;
+      // The generated run() catches ProgramExit for GOBACK and STOP RUN alike, so a STOP RUN in a
+      // called program returns to its caller in Java (COBOL ends the whole run unit). Modelling the
+      // Java as it is lets the harness report that difference instead of hiding it.
+      if (e instanceof FinProgramme || e instanceof StopRun) return;
       throw e;
     }
   }
@@ -266,7 +269,8 @@ export class JavaMachine {
               return typeof v === "string" ? v.padEnd(c.f.length, " ") : displayValue(v, c.f.pic);
             }
             if (p.k === "str" || p.k === "fill") return this.evalStr(prog, st, p);
-            return this.evalNum(prog, st, p).toString();
+            if (p.k === "num") return plainLiteral(p.v);
+            return this.evalNum(prog, st, p).toFixed();
           })
           .join("");
         this.displays.push(rtrim(line));
@@ -329,12 +333,16 @@ export class JavaMachine {
         if (f) bindings.set(f.cobol, { f, v: this.evalStr(prog, st, a.literal) });
         return;
       }
-      const callerFields = prog.groups.find((g) => g.cobol === a.cobol)?.fields ?? (prog.fields.get(a.cobol) ? [prog.fields.get(a.cobol)!] : []);
+      const callerGroup = prog.groups.find((g) => g.cobol === a.cobol);
+      const callerFields = callerGroup?.fields ?? (prog.fields.get(a.cobol) ? [prog.fields.get(a.cobol)!] : []);
       if (callerFields.length !== calleeFields.length) throw new Abend(`Call ${s.program}: ${a.cobol} and ${a.param} have different structures`);
+      // The generated Java shares a group passed BY REFERENCE (same object, or copied in and back).
+      // An elementary item is a Java value: the callee's changes never reach the caller.
+      const shared = a.mode === "REFERENCE" && !!callerGroup && !!callee.groups.find((g) => g.cobol === a.param);
       calleeFields.forEach((f, k) => {
         const cell = st.get(callerFields[k].cobol);
         if (!cell) return;
-        bindings.set(f.cobol, a.mode === "REFERENCE" ? cell : { f, v: cell.v, arr: cell.arr ? [...cell.arr] : undefined });
+        bindings.set(f.cobol, shared ? cell : { f, v: cell.v, arr: cell.arr ? [...cell.arr] : undefined });
       });
     });
     const cst = this.storageFor(callee, bindings);
@@ -361,7 +369,9 @@ export class JavaMachine {
   }
 
   private put(prog: JProgram, st: Storage, c: Cell, sub: JExpr | undefined, v: Dec | string) {
-    if (c.arr) c.arr[this.idx(prog, st, c, sub)] = v;
+    // No subscript on a table (INITIALIZE): the generated code fills every element.
+    if (c.arr && !sub) c.arr = c.arr.map(() => v);
+    else if (c.arr) c.arr[this.idx(prog, st, c, sub)] = v;
     else c.v = v;
   }
 
@@ -511,6 +521,18 @@ export class JavaMachine {
       }
     }
   }
+}
+
+/**
+ * new BigDecimal(literal).toPlainString(), as printed by the generated code: trailing zeros kept,
+ * leading zeros and "+" dropped (0, 1 and 10 are the BigDecimal.ZERO / ONE / TEN constants).
+ */
+export function plainLiteral(v: string): string {
+  if (!/[1-9]/.test(v)) return "0";
+  const neg = v.startsWith("-");
+  const [i, f] = v.replace(/^[+-]/, "").split(".");
+  const int = i.replace(/^0+/, "") || "0";
+  return (neg ? "-" : "") + int + (f !== undefined ? "." + f : "");
 }
 
 function rel(k: number, op: string): boolean {

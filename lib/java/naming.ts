@@ -76,7 +76,8 @@ export function className(cobolGroup: string): string {
   let ws = words(cobolGroup);
   while (ws.length > 1 && TECH_PREFIX.has(ws[0])) ws = ws.slice(1);
   if (ws.length > 1 && GROUP_SUFFIX.has(ws[ws.length - 1])) ws = ws.slice(0, -1);
-  return cap(toCamel(ws));
+  const name = cap(toCamel(ws));
+  return TAKEN_CLASSES.has(name) ? name + "Area" : name;
 }
 
 /** Class name of a program, from the first words of its title comment when there is one. */
@@ -89,10 +90,22 @@ export function programClassName(programId: string, title?: string): string {
       .split(/\s+/)
       .filter((w) => w && !STOP_WORDS.has(w) && w.length > 1)
       .slice(0, 3);
-    if (ws.length >= 2) return ws.map((w) => cap(w.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""))).join("");
+    const name = ws.map((w) => cap(w.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""))).join("");
+    if (ws.length >= 2 && /^[A-Z][A-Za-z0-9]*$/.test(name) && !TAKEN_CLASSES.has(name)) return name;
   }
-  return cap(programId.toLowerCase());
+  // PROGRAM-ID such as CALC-INT or PAY#01: keep only what a Java class name allows.
+  const id = programId
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((w) => cap(w.toLowerCase()))
+    .join("");
+  if (!id) return "Program";
+  if (/^\d/.test(id)) return "Program" + id;
+  return TAKEN_CLASSES.has(id) ? id + "Program" : id;
 }
+
+/** Types the generated code imports or uses unqualified: a program class must not reuse them. */
+const TAKEN_CLASSES = new Set(["Pic", "Sql", "Row", "Cursor", "Environment", "ProgramExit", "ExternalPrograms", "BigDecimal", "MathContext", "RoundingMode", "String", "Object", "System", "Math", "Integer", "Boolean", "Override"]);
 
 export function methodName(paragraph: string): string {
   let ws = words(paragraph);
@@ -104,7 +117,8 @@ export function methodName(paragraph: string): string {
 export function constName(cobol: string): string {
   let ws = words(cobol);
   while (ws.length > 1 && TECH_PREFIX.has(ws[0])) ws = ws.slice(1);
-  return ws.map((w) => expand(w).replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()).join("_");
+  const name = ws.map((w) => expand(w).replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase()).join("_").replace(/[^A-Z0-9_]/g, "");
+  return /^[A-Z_]/.test(name) ? name : "V_" + name;
 }
 
 export function conditionMethod(cobol: string): string {

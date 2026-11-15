@@ -12,7 +12,7 @@
 
 <p align="center"><img src="docs/demo.gif" alt="Mue Studio: understand a COBOL program, convert it to Java, find a rounding mismatch, fix it, and prove equivalence" width="920"></p>
 
-Most COBOL-to-Java tools stop at "it compiles". The hard part of a mainframe migration is being able to say, with evidence, that the new code computes **exactly** the same cents as the old one. Mue is an open-source toolkit built around that question:
+Getting Java out of COBOL is only half of a mainframe migration. The hard part is being able to say, with evidence, that the new code computes **exactly** the same cents as the old one. Mue is an open-source toolkit built around that question:
 
 1. **Understand**: parse the programs, copybooks and JCL, map the system (calls, tables, dead code) and write down each business rule with its source line.
 2. **Convert**: emit readable Java (`BigDecimal`, business names, one method per paragraph, COBOL line ↔ Java line mapping).
@@ -23,12 +23,12 @@ Everything runs locally. No model, key or network call is required.
 ## Quick start
 
 ```bash
-git clone https://github.com/<owner>/mue.git && cd mue
-npm install
+git clone https://github.com/tbsrgt/mue.git && cd mue
+npm ci
 npm run mue -- verify examples/banking --rounding HALF_EVEN
 ```
 
-The third command converts the example banking system with a common Java team convention (banker's rounding) and shows where it changes results. Requires Node.js 22.13 or later. Then open the local web UI with `npm run studio` (http://localhost:3000).
+The third command converts the example banking system with a common Java team convention (banker's rounding) and shows where it changes results; it exits with code 1 because it finds mismatches, which is the point. Drop `--rounding HALF_EVEN` to see every converted program pass. Requires Node.js 22.13 or later. Then open the local web UI with `npm run studio` (http://localhost:3000).
 
 ## How the equivalence check works: the CALCINT story
 
@@ -55,6 +55,8 @@ CALCINT   MISMATCH    2,362 / 2,400  identical  38 different
 
 Note where the 38 come from: the 2,340 realistic random cases found **zero** mismatches. All 38 come from the harness's targeted search for rounding ties. Random testing alone would have signed this migration off.
 
+Without `--cases`, Mue runs 2,000 random cases plus the edge cases, which is 2,055 cases for CALCINT; that is also what the Studio (and the demo above) runs, with 33 mismatches under `HALF_EVEN`. The tie search scales with the number of cases, hence 38 at 2,400.
+
 **Fixed and proven.**
 
 ```console
@@ -76,10 +78,11 @@ It is **differential testing**, not formal verification. For each program Mue:
 
 Database access and programs missing from the sources are stubbed identically on both sides; only the converted code is compared. If a program contains a construct Mue does not convert, it is **skipped and reported, never declared equivalent**.
 
-Two honest caveats, both on the roadmap:
+Honest caveats, all on the roadmap:
 
 - The COBOL side is Mue's own interpreter, which models IBM Enterprise COBOL arithmetic (`ARITH(EXTEND)`: 31-digit intermediates, `ROUNDED` half away from zero, silent high-order truncation). It has not yet been cross-checked against a real compiler.
-- The Java side is executed by a `BigDecimal` model of the same intermediate representation the Java text is rendered from, not on a JVM. The emitted Java has not yet been compiled in CI.
+- `verify` executes the Java through a `BigDecimal` model of the same intermediate representation the Java text is rendered from, not on a JVM. CI compiles the emitted Java of the example with `javac` (JDK 21) and replays every CALCINT case through the compiled classes against the COBOL interpreter; the other example programs are compiled but not yet executed on a JVM.
+- Only the subset listed below is supported; anything else is flagged and skipped.
 
 ## The CLI
 
@@ -93,7 +96,7 @@ Conversion options, for `convert` and `verify`: `--rounding HALF_UP|HALF_EVEN` (
 
 - **`analyze`** prints the inventory (lines, cyclomatic complexity, calls, tables, dead paragraphs, constructs needing manual work), the call graph as a Mermaid diagram, and the business rules of every program with their source lines.
 - **`convert`** writes one Java class per program, one class per shared copybook, and the small runtime it needs (`Pic`, `Sql`, …) under `java/<package>/`.
-- **`verify`** prints one line per program and writes Markdown, HTML and JSON reports. Exit codes: `0` all verified programs are equivalent, `1` mismatches (or skipped programs with `--strict`), `2` usage error.
+- **`verify`** prints one line per program and writes Markdown, HTML and JSON reports. Exit codes: `0` all verified programs are equivalent, `1` mismatches (or skipped programs with `--strict`), `2` usage error, `3` internal error.
 
 Recorded inputs are a JSON object keyed by program:
 
@@ -135,7 +138,7 @@ Mue targets the batch business logic found in banking and insurance code. It del
 - `USAGE DISPLAY`, `COMP`, `COMP-3` / `PACKED-DECIMAL`, `COMP-5`, `BINARY`, modeled at the value level (digits, scale, sign), not as byte layouts.
 - `MOVE` (including group to group with the same structure), `COMPUTE`, `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE` (`GIVING`, `REMAINDER`), `ROUNDED` (default mode), `ON SIZE ERROR` / `NOT ON SIZE ERROR`, silent truncation of high-order digits, loss of sign on unsigned fields.
 - `IF` / `ELSE`, `EVALUATE` (subject, `TRUE` / `FALSE`, stacked `WHEN`, `THRU`, `OTHER`), relational, abbreviated, class (`NUMERIC`, `ALPHABETIC`), sign and level-88 conditions.
-- `PERFORM` (paragraph, `THRU`, inline, `TIMES`, `UNTIL`, `VARYING`, `TEST BEFORE` / `AFTER`), static `CALL ... USING BY REFERENCE / CONTENT`, `GOBACK`, `STOP RUN`, `EXIT PROGRAM`, `CONTINUE`.
+- `PERFORM` (paragraph, `THRU`, inline, `TIMES`, `UNTIL`, `VARYING`, `TEST BEFORE` / `AFTER`), static `CALL ... USING BY REFERENCE / CONTENT`, `GOBACK`, `STOP RUN`, `EXIT PROGRAM`, `CONTINUE`. Two known gaps in the Java, which `verify` reports as mismatches rather than hiding: an elementary item passed `BY REFERENCE` is not written back to the caller, and a `STOP RUN` in a called program only returns from that program.
 - `DISPLAY`, `ACCEPT ... FROM DATE / TIME` (stubbed), `INITIALIZE`, `SET ... TO TRUE`, `SET ... TO value`.
 - `FUNCTION MAX`, `MIN`, `ABS`, `MOD`, `REM`, `INTEGER`, `INTEGER-PART`.
 - Embedded DB2 SQL: `SELECT ... INTO`, `INSERT`, `UPDATE`, `DELETE`, `DECLARE` / `OPEN` / `FETCH` / `CLOSE` cursor, `INCLUDE SQLCA`, `SQLCODE` (the database is stubbed identically on both sides).
@@ -177,11 +180,11 @@ CICS (`EXEC CICS`, flagged) and BMS maps; IMS / DL/I (`EXEC DLI`, flagged); VSAM
 | `app/`, `components/` | Mue Studio (Next.js, React, SQLite) |
 | `examples/banking` | A small fictional banking system: interest, loans, late fees, SEPA transfers, nightly batch |
 
-The Java text and the Java execution model come from the same IR, so what is verified is what is emitted.
+The Java text and the Java execution model come from the same IR, which keeps them in step; the CI job that compiles the emitted Java and replays CALCINT on a JVM is there to catch any drift between the two.
 
 ## Roadmap
 
-- Run the emitted Java on a real JVM in the verification loop, and compile it in CI.
+- Run the emitted Java on a real JVM in the verification loop, for every program (CI already compiles it and replays CALCINT).
 - Cross-check the reference interpreter against GnuCOBOL and IBM Enterprise COBOL on a public test corpus.
 - Convert structured `GO TO` patterns (exit paragraphs), `REDEFINES`, sequential files, `STRING` / `UNSTRING` / `INSPECT`.
 - Byte-level storage model (`COMP-3` nibbles, overlapping fields) behind an option.
@@ -193,16 +196,16 @@ The Java text and the Java execution model come from the same IR, so what is ver
 
 There are capable commercial tools in this space; Mue is not trying to replace a full migration program. Its scope is narrower: an open, inspectable equivalence check you can run and audit yourself.
 
-| | Open source | Main focus (as publicly described) |
+| | License (as of 2026) | Main focus (as publicly described) |
 |---|---|---|
-| **Mue** | Yes (AGPL-3.0) | COBOL → Java with a reproducible, auditable equivalence report |
-| IBM watsonx Code Assistant for Z | No | AI-assisted understanding and COBOL → Java transformation in the IBM Z ecosystem |
-| AWS Mainframe Modernization (AWS Transform, Blu Age) | No | Managed refactoring and replatforming of mainframe applications to AWS |
-| Kodesage | No | AI knowledge base and documentation for legacy codebases |
-| Hypercubic | No | AI tooling to understand and modernize mainframe systems |
-| GnuCOBOL | Yes | A COBOL compiler: runs COBOL, does not translate it |
+| **Mue** | Open source (AGPL-3.0) | COBOL → Java with a reproducible, auditable equivalence report |
+| IBM watsonx Code Assistant for Z | Proprietary | AI-assisted understanding and COBOL → Java transformation in the IBM Z ecosystem |
+| AWS Mainframe Modernization (AWS Transform, Blu Age) | Proprietary | Managed refactoring and replatforming of mainframe applications to AWS |
+| Kodesage | Proprietary | AI knowledge base and documentation for legacy codebases |
+| Hypercubic | Proprietary | AI tooling to understand and modernize mainframe systems |
+| GnuCOBOL | Open source (GPL / LGPL) | A COBOL compiler: runs COBOL, does not translate it |
 
-Descriptions are summaries of public product pages and may be incomplete; corrections are welcome. To our knowledge, none of the commercial tools publishes its equivalence-checking method as open source.
+Descriptions are short summaries of each vendor's public pages as of 2026, not evaluations; they may be incomplete or out of date, and corrections are welcome.
 
 ## Contributing
 
@@ -214,7 +217,7 @@ Mue is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
 
 ### Commercial licensing
 
-If the AGPL does not fit your organization (for example to embed Mue in a proprietary product or service), a commercial license can be arranged. Please contact the maintainers.
+If the AGPL does not fit your organization (for example to embed Mue in a proprietary product or service), a commercial license can be arranged. Please contact the maintainer privately through GitHub ([github.com/tbsrgt](https://github.com/tbsrgt)).
 
 ---
 
