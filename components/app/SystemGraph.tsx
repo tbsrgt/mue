@@ -26,11 +26,11 @@ function GNode({ data }: NodeProps<Node<NodeData>>) {
 const nodeTypes = { g: GNode };
 
 const EDGE_STYLE: Record<G["edges"][number]["kind"], { stroke: string; dash?: string; label: string }> = {
-  exec: { stroke: "#7cc9d8", label: "runs" },
-  call: { stroke: "#e9b14c", label: "CALL" },
-  copy: { stroke: "#5f786d", dash: "4 4", label: "COPY" },
-  read: { stroke: "#41c79d", label: "reads" },
-  write: { stroke: "#ff7d70", label: "writes" },
+  exec: { stroke: "#0b5cad", label: "runs" },
+  call: { stroke: "#1b3d7a", label: "CALL" },
+  copy: { stroke: "#6f6f6f", dash: "4 4", label: "COPY" },
+  read: { stroke: "#18753c", label: "reads" },
+  write: { stroke: "#c00f0c", label: "writes" },
 };
 
 export default function SystemGraph({ graph, projectId, stages }: { graph: G; projectId: number; stages: Record<string, string> }) {
@@ -53,8 +53,8 @@ export default function SystemGraph({ graph, projectId, stages }: { graph: G; pr
         source: e.source,
         target: e.target,
         label: st.label,
-        labelStyle: { fill: "#8aa398", fontSize: 10, fontFamily: "var(--font-mono)" },
-        labelBgStyle: { fill: "#0a1512" },
+        labelStyle: { fill: "#5e5e5e", fontSize: 10, fontFamily: "var(--font-mono)" },
+        labelBgStyle: { fill: "#ffffff" },
         style: { stroke: st.stroke, strokeWidth: 1.4, strokeDasharray: st.dash },
         markerEnd: { type: MarkerType.ArrowClosed, color: st.stroke, width: 14, height: 14 },
         animated: e.kind === "call",
@@ -75,7 +75,7 @@ export default function SystemGraph({ graph, projectId, stages }: { graph: G; pr
         maxZoom={1.8}
         nodesDraggable
         proOptions={{ hideAttribution: true }}
-        colorMode="dark"
+        colorMode="light"
         onNodeClick={(_, n) => {
           if (n.data.kind === "program") router.push(`/projects/${projectId}/programs/${n.data.label}`);
         }}

@@ -37,7 +37,7 @@ async function caption(text) {
     if (!el) {
       el = document.createElement("div");
       el.id = "demo-caption";
-      el.style.cssText = "position:fixed;right:24px;bottom:22px;z-index:9999;background:#41c79d;color:#06120e;font:600 18px/1.2 system-ui,sans-serif;padding:10px 16px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.45)";
+      el.style.cssText = "position:fixed;right:24px;bottom:22px;z-index:9999;background:#1b3d7a;color:#fff;font:600 18px/1.2 system-ui,sans-serif;padding:10px 16px;border-radius:0;box-shadow:0 4px 16px rgba(0,0,0,.2)";
       document.body.appendChild(el);
     }
     el.textContent = t;

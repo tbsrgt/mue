@@ -75,21 +75,21 @@ ${r.cursors.length ? `<dt>Stubbed cursors</dt><dd>${esc(r.cursors.join(", "))}</
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Mue</title>
 <style>
-:root{--ink:#11201b;--mut:#5b6f66;--line:#d6e0db;--green:#178a64;--red:#c2412f;--bar:#eef6f1}
+:root{--ink:#161616;--mut:#5e5e5e;--line:#dddddd;--green:#18753c;--red:#c00f0c;--bar:#f6f6f6;--navy:#1b3d7a}
 *{box-sizing:border-box}
-body{margin:0;background:#e9eeeb;color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+body{margin:0;background:#f6f6f6;color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
 .page{max-width:920px;margin:24px auto;background:#fff;padding:48px 56px;box-shadow:0 2px 24px rgba(0,0,0,.08)}
 .top{display:flex;align-items:center;gap:12px;border-bottom:2px solid var(--ink);padding-bottom:14px}
-.mk{width:30px;height:30px;border-radius:6px;background:#41c79d;color:#06120e;display:grid;place-items:center;font-weight:700}
+.mk{width:30px;height:30px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:700}
 .top b{font-size:22px}.top .sp{flex:1}.top small{color:var(--mut);font:12px ui-monospace,Menlo,monospace}
 h1{font-size:28px;line-height:1.15;margin:26px 0 4px}
 h2{font-size:18px;margin:34px 0 6px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:6px}
 h3{font-size:15px;margin:0 0 6px;display:flex;gap:10px;align-items:center}
 h4{font:600 12px ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:18px 0 6px}
 .meta{color:var(--mut);margin:0}
-.verdict{margin:22px 0;border:2px solid ${ok ? "var(--green)" : "var(--red)"};border-radius:8px;padding:16px 18px;display:flex;gap:18px;align-items:center}
+.verdict{margin:22px 0;border:2px solid ${ok ? "var(--green)" : "var(--red)"};padding:16px 18px;display:flex;gap:18px;align-items:center}
 .verdict .v{font-weight:700;font-size:18px;color:${ok ? "var(--green)" : "var(--red)"}}
-.nums{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.nums{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);overflow:hidden}
 .nums div{padding:12px 16px;border-right:1px solid var(--line)}.nums div:last-child{border-right:0}
 .nums span{display:block;font:11px ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--mut)}
 .nums b{font-size:26px}
@@ -100,7 +100,7 @@ tbody tr:nth-child(even) td{background:var(--bar)}
 .r{text-align:right;font-family:ui-monospace,Menlo,monospace}
 .tag{font:500 11px ui-monospace,Menlo,monospace;border-radius:99px;padding:2px 8px;border:1px solid}
 .tag.bad{color:var(--red);border-color:var(--red)}.tag.ok{color:var(--green);border-color:var(--green)}
-.grp{border:1px solid var(--line);border-left:4px solid var(--red);border-radius:6px;padding:14px 16px;margin:12px 0;break-inside:avoid}
+.grp{border:1px solid var(--line);border-left:4px solid var(--red);padding:14px 16px;margin:12px 0;break-inside:avoid}
 .where,.dim{color:var(--mut);font-size:12.5px}
 .fix{font-weight:600;color:var(--green);margin:10px 0 0}
 ul.warn{padding-left:18px}ul.warn li{margin-bottom:6px}
@@ -109,8 +109,8 @@ dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 18px;margin:12px 0
 .sign div{border-top:1px solid var(--ink);padding-top:6px;color:var(--mut);font-size:12.5px;height:70px}
 .foot{margin-top:30px;color:var(--mut);font-size:11.5px;border-top:1px solid var(--line);padding-top:10px}
 .ex{background:#fff6dc;border:1px solid #f0d58f;color:#6b4d00;border-radius:6px;padding:8px 12px;font-size:12.5px;margin-top:14px}
-.bar{position:sticky;top:0;display:flex;gap:8px;justify-content:center;padding:10px;background:#11201b}
-.bar button{font:600 13px system-ui,sans-serif;background:#41c79d;color:#06120e;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+.bar{position:sticky;top:0;display:flex;gap:8px;justify-content:center;padding:10px;background:#161616}
+.bar button{font:600 13px system-ui,sans-serif;background:#fff;color:var(--navy);border:0;padding:8px 14px;cursor:pointer}
 @media print{body{background:#fff}.page{box-shadow:none;margin:0;max-width:none;padding:0}.bar{display:none}@page{margin:16mm}}
 @media (max-width:700px){.page{padding:24px 18px;margin:0}.nums{grid-template-columns:1fr}.nums div{border-right:0;border-bottom:1px solid var(--line)}.sign{grid-template-columns:1fr}}
 </style></head><body>

@@ -128,7 +128,7 @@ function Understand({ projectId, ast, analysis, state }: { projectId: number; as
             <div className="hd">
               <h2>What this program does</h2>
               <span className="sp" />
-              <span className="chip warn plain">AI · {e.provider === "mock" ? "deterministic mock" : e.provider}</span>
+              <span className="chip mut plain">Source: {e.provider === "mock" ? "deterministic engine" : e.provider} · to be reviewed</span>
             </div>
             <div className="bd">
               <p className="lead">{e.role}</p>
@@ -375,7 +375,7 @@ function Verify({ projectId, ast, state, report, current, history }: { projectId
               return (
                 <section key={i} className="cause">
                   <div className="hd" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid" }}>
-                    <span className="ai">AI</span>
+                    <span className="ai">Probable cause</span>
                     <h3 style={{ margin: 0, fontSize: 15 }}>{ex?.title ?? g.kind}</h3>
                     <span className="sp" />
                     <span className="chip bad">{g.count} mismatch{g.count === 1 ? "" : "es"}</span>
@@ -447,7 +447,7 @@ function Verify({ projectId, ast, state, report, current, history }: { projectId
 
           {d.warnings.length > 0 && (
             <section className="warnbox">
-              <div className="hd" style={{ display: "flex", padding: "12px 16px", borderBottom: "1px solid rgba(233,177,76,.2)" }}><h3 style={{ margin: 0, fontSize: 14 }}>Legacy behaviors reproduced exactly</h3></div>
+              <div className="hd" style={{ display: "flex", padding: "12px 16px", borderBottom: "1px solid var(--line)" }}><h3 style={{ margin: 0, fontSize: 14 }}>Legacy behaviors reproduced exactly</h3></div>
               <div className="bd" style={{ padding: 16 }}>
                 <ul className="attn">
                   {d.warnings.map((w, i) => (

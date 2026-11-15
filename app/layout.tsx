@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from "next/font/google";
+import { IBM_Plex_Mono, Public_Sans } from "next/font/google";
 import Link from "next/link";
 import { Icon } from "@/components/app/ui";
 import { NavLink } from "@/components/app/NavLink";
@@ -9,8 +9,7 @@ import { listProjects, ready } from "@/lib/services";
 import "./globals.css";
 import "./studio.css";
 
-const sans = IBM_Plex_Sans({ variable: "--font-plex", subsets: ["latin"], weight: ["400", "500", "600"], display: "swap" });
-const cond = IBM_Plex_Sans_Condensed({ variable: "--font-plex-cond", subsets: ["latin"], weight: ["500", "600", "700"], display: "swap" });
+const sans = Public_Sans({ variable: "--font-public", subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap" });
 const mono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"], weight: ["400", "500"], display: "swap" });
 
 export const dynamic = "force-dynamic";
@@ -22,41 +21,60 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export const viewport: Viewport = { themeColor: "#07100d", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#ffffff", colorScheme: "light" };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   await ready();
   const projects = listProjects();
   const ai = getAi().name;
   return (
-    <html lang="en" className={`${sans.variable} ${cond.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body>
         <div className="shell">
-          <aside className="side" aria-label="Studio navigation">
-            <Link href="/" className="brand" aria-label="Mue Studio home">
-              <span className="mark">M</span>
-              <b>Mue</b>
-            </Link>
-            <span className="navlbl">Migration</span>
-            <NavLink href="/" exact className="nav">
-              <Icon name="projects" /> Projects <span className="cnt">{projects.length}</span>
-            </NavLink>
-            {projects.slice(0, 6).map((p) => (
-              <NavLink key={p.id} href={`/projects/${p.id}`} className="nav">
-                <Icon name="dashboard" /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-              </NavLink>
-            ))}
-            <NavLink href="/projects/new" className="nav">
-              <Icon name="plus" /> New project
-            </NavLink>
-            <div className="foot">
-              <span className="badge"><i /> Runs locally · no data leaves this machine</span>
-              <span className="badge amber"><i /> AI: {ai === "mock" ? "deterministic mock" : ai}</span>
+          <header className="hdr">
+            <div className="in">
+              <Link href="/" className="brand" aria-label="Mue Studio home">
+                <span className="mark" aria-hidden="true">M</span>
+                <span>
+                  <b>Mue Studio</b>
+                  <small>COBOL to Java migration, with proof of equivalence</small>
+                </span>
+              </Link>
+              <span className="sp" />
+              <div className="meta">
+                <span>Local installation · <b>no data leaves this machine</b></span>
+                <span>Explanation engine: <b>{ai === "mock" ? "deterministic (offline)" : ai}</b></span>
+              </div>
             </div>
-          </aside>
+          </header>
+          <nav className="topnav" aria-label="Main navigation">
+            <div className="in">
+              <NavLink href="/" exact className="nav">
+                Projects <span className="cnt">{projects.length}</span>
+              </NavLink>
+              {projects.slice(0, 5).map((p) => (
+                <NavLink key={p.id} href={`/projects/${p.id}`} className="nav">
+                  {p.name}
+                </NavLink>
+              ))}
+              <span className="sp" />
+              <NavLink href="/projects/new" className="nav">
+                <Icon name="plus" /> New project
+              </NavLink>
+            </div>
+          </nav>
           <main className="main" id="content">
             {children}
           </main>
+          <footer className="ftr">
+            <div className="in">
+              <span>Mue Studio · open source under AGPL-3.0</span>
+              <a href="https://github.com/tbsrgt/mue">Source code</a>
+              <a href="https://github.com/tbsrgt/mue/blob/main/SECURITY.md">Report a vulnerability</a>
+              <span className="sp" />
+              <span>Results are verified by replaying recorded cases, not by the explanation engine.</span>
+            </div>
+          </footer>
         </div>
       </body>
     </html>

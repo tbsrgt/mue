@@ -26,11 +26,11 @@ export default async function SystemPage({ params }: { params: Promise<{ id: str
         <div className="bd" style={{ padding: 12 }}>
           <SystemGraph graph={sys.graph} projectId={id} stages={stages} />
           <div className="legend" style={{ marginTop: 12 }}>
-            <span><i style={{ background: "#7cc9d8" }} /> job runs program</span>
-            <span><i style={{ background: "#e9b14c" }} /> CALL</span>
-            <span><i style={{ background: "#5f786d" }} /> COPY</span>
-            <span><i style={{ background: "#41c79d" }} /> reads a table</span>
-            <span><i style={{ background: "#ff7d70" }} /> writes a table</span>
+            <span><i style={{ background: "#0b5cad" }} /> job runs program</span>
+            <span><i style={{ background: "#1b3d7a" }} /> CALL</span>
+            <span><i style={{ background: "#6f6f6f" }} /> COPY</span>
+            <span><i style={{ background: "#18753c" }} /> reads a table</span>
+            <span><i style={{ background: "#c00f0c" }} /> writes a table</span>
           </div>
         </div>
       </section>
